@@ -33,6 +33,10 @@ func -(lhs: Vector, rhs: Vector) -> Vector {
     return Vector(x: lhs.x - rhs.x, y: lhs.y - rhs.y, z: lhs.z - rhs.z)
 }
 
+func +=(inout lhs: Vector, rhs: Vector) {
+    lhs = lhs + rhs
+}
+
 func *(lhs: Vector, rhs: Float) -> Vector {
     return Vector(x: lhs.x * rhs, y: lhs.y * rhs, z: lhs.z * rhs)
 }
@@ -52,42 +56,79 @@ func max(lhs: Vector, rhs: Vector) -> Vector {
     return Vector(x: max(lhs.x, rhs.x), y: max(lhs.y, rhs.y), z: max(lhs.z, rhs.z))
 }
 
+typealias Vertex = (position: Vector, normal: Vector)
+
 struct Ray {
     let origin, direction: Vector
 }
 
 struct Face {
-    let x, y, z: Vector
+    let v0, v1, v2, e0, e1, e2, n0, n1, n2: Vector
     
-    init(x: Vector, y: Vector, z: Vector) {
-        self.x = x
-        self.y = y - self.x
-        self.z = z - self.x
+    init(v0: Vector, v1: Vector, v2: Vector, n0: Vector, n1: Vector, n2: Vector) {
+        self.v0 = v0
+        self.v1 = v1
+        self.v2 = v2
+        e0 = v1 - v0
+        e1 = v2 - v0
+        e2 = v2 - v1
+        self.n0 = n0
+        self.n1 = n1
+        self.n2 = n2
     }
     
     func intersect(ray: Ray) -> Float? {
-        let h: Vector = ray.direction * z
-        let a: Float = h * y
+        let h: Vector = ray.direction * e1
+        let a: Float = h * e0
         if a > -0.00001 && a < 0.00001 {
             return nil
         }
         let f = 1 / a
-        let s = ray.origin - x
+        let s = ray.origin - v0
         let u = f * (s * h)
         if u < 0 || u > 1 {
             return nil
         }
-        let q: Vector = s * y
+        let q: Vector = s * e0
         let v = f * (ray.direction * q)
         if v < 0 || u + v > 1 {
             return nil
         }
-        let t = f * (z * q)
+        let t = f * (e1 * q)
         return t > 0.00001 ? t : nil
     }
     
-    var normal: Vector {
-        return y * z
+    func normal(point: Vector) -> Vector {
+        let p1, p2, normal1, normal2: Vector
+        if e0.x > e1.x || e0.x > e2.x {
+            let ratio = (point.x - v0.x) / e0.x
+            p1 = e0 * ratio + v0
+            normal1 = (n1 - n0) * ratio + n0
+            if e1.x > e2.x {
+                let ratio = (point.x - v0.x) / e1.x
+                p2 = e1 * ratio + v0
+                normal2 = (n2 - n0) * ratio + n0
+            } else {
+                let ratio = (point.x - v1.x) / e2.x
+                p2 = e2 * ratio + v1
+                normal2 = (n2 - n1) * ratio + n1
+            }
+        } else {
+            let ratio1 = (point.x - v0.x) / e1.x
+            p1 = e1 * ratio1 + v0
+            normal1 = (n2 - n0) * ratio1 + n0
+            let ratio2 = (point.x - v1.x) / e2.x
+            p2 = e2 * ratio2 + v1
+            normal2 = (n2 - n1) * ratio2 + n1
+        }
+        let ratio: Float
+        let ydiff = p2.y - p1.y, zdiff = p2.z - p1.z
+        if abs(ydiff) > abs(zdiff) {
+            ratio = (point.y - p1.y) / ydiff
+        } else {
+            ratio = (point.z - p1.z) / zdiff
+        }
+        return (normal2 - normal1) * ratio + normal1
     }
 }
 
@@ -101,8 +142,8 @@ let width = 1024, height = 1024
 let light = Vector(x: 1, y: 0, z: 0)
 let lightColor = Vector(x: 0, y: 0, z: 1)
 
-var v: [Vector] = []
-var f: [Face] = []
+var v: [Vertex] = []
+var f: [(Int, Int, Int)] = []
 
 let model = String(contentsOfFile: "1.obj", encoding: NSUTF8StringEncoding, error: nil)!
 let lines = split(model) { $0 == "\n" }
@@ -114,12 +155,21 @@ for line in lines {
     }
     if items[0] == "v" {
         let array = Array(items[1...3]).map { numberFormatter.numberFromString($0)!.floatValue }
-        v.append(Vector(x: array[0], y: array[1], z: array[2]))
+        v.append((Vector(x: array[0], y: array[1], z: array[2]), .zero))
     } else if items[0] == "f" {
-        let array = Array(items[1...3]).map { $0.toInt()! }
-        f.append(Face(x: v[array[0] - 1], y: v[array[1] - 1], z: v[array[2] - 1]))
+        let array = Array(items[1...3]).map { $0.toInt()! - 1 }
+        f.append(array[0], array[1], array[2])
+        let v0 = v[array[0]].position
+        let v1 = v[array[1]].position - v0
+        let v2 = v[array[2]].position - v0
+        let normal: Vector = v1 * v2
+        v[array[0]].normal += normal
+        v[array[1]].normal += normal
+        v[array[2]].normal += normal
     }
 }
+v = v.map { ($0.position, $0.normal.normalized) }
+let faces = f.map { Face(v0: v[$0.0].position, v1: v[$0.1].position, v2: v[$0.2].position, n0: v[$0.0].normal, n1: v[$0.1].normal, n2: v[$0.2].normal) }
 
 var image = [[Vector]](count: height, repeatedValue: [Vector](count: width, repeatedValue: .zero))
 
@@ -133,7 +183,7 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
         var ray = Ray(origin: Vector(x: fj, y: 1, z: fi), direction: Vector(x: 0, y: -1, z: 0))
         do {
             var min: Float = .infinity, minFace: Face?
-            for face in f {
+            for face in faces {
                 if let distance = face.intersect(ray) where distance < min {
                     min = distance
                     minFace = face
@@ -145,13 +195,13 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
                 let direction = light - intersection
                 let toLight = Ray(origin: intersection, direction: direction)
                 var obstructed = false
-                for face in f {
+                for face in faces {
                     if face.intersect(toLight) != nil {
                         obstructed = true
                         break
                     }
                 }
-                let n = face.normal.normalized
+                let n = face.normal(intersection).normalized
                 if !obstructed {
                     let l = direction.normalized
                     let e = -intersection.normalized
