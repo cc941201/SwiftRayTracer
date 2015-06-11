@@ -52,10 +52,6 @@ func *(lhs: Vector, rhs: Vector) -> Vector {
     return Vector(x: x, y: y, z: z)
 }
 
-func max(lhs: Vector, rhs: Vector) -> Vector {
-    return Vector(x: max(lhs.x, rhs.x), y: max(lhs.y, rhs.y), z: max(lhs.z, rhs.z))
-}
-
 typealias Vertex = (position: Vector, normal: Vector)
 
 struct Ray {
@@ -136,7 +132,7 @@ extension Int {
 }
 
 let width = 1024, height = 1024
-let light = Vector(x: 1, y: 0, z: 0)
+let light = Vector(x: 1, y: -1, z: 0)
 let lightColor = Vector(x: 0, y: 0, z: 1)
 
 var v: [Vertex] = []
@@ -206,7 +202,7 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
                     let kd = max(l * n, 0)
                     let ks = pow(max(n * h, 0), 5)
                     let newColor = lightColor * (kd * 0.8) + Vector(x: 0.3, y: 0.3, z: 0.3) * ks
-                    color = max(color, newColor)
+                    color += newColor * reflection
                 }
                 let newDirection = ray.direction - n * ((n * ray.direction) as Float) * 2
                 ray = Ray(origin: intersection, direction: ray.direction)
