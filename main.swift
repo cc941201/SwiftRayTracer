@@ -170,7 +170,7 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
     let fi = i.f / height.f * 2 - 1
     for j in 0..<width {
         let fj = j.f / width.f * 2 - 1
-        var color = Vector(x: 0, y: 0, z: 0)
+        var color = Vector.zero
         var reflection: Float = 1
         var depth = 0
         var ray = Ray(origin: Vector(x: fj, y: 1, z: fi), direction: Vector(x: 0, y: -1, z: 0))
@@ -202,7 +202,7 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
                     let kd = max(l * n, 0)
                     let ks = pow(max(n * h, 0), 5)
                     let newColor = lightColor * (kd * 0.8) + Vector(x: 0.3, y: 0.3, z: 0.3) * ks
-                    color += newColor * reflection
+                    color += newColor
                 }
                 let newDirection = ray.direction - n * ((n * ray.direction) as Float) * 2
                 ray = Ray(origin: intersection, direction: ray.direction)
