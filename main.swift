@@ -12,7 +12,7 @@ struct Vector {
     let x, y, z: Float
     
     var normalized: Vector {
-        let scale = 1 / sqrt(x * x + y * y + z * z)
+        let scale = 1 / Float(x * x + y * y + z * z).squareRoot()
         return Vector(x: x * scale, y: y * scale, z: z * scale)
     }
     
@@ -33,7 +33,7 @@ func -(lhs: Vector, rhs: Vector) -> Vector {
     return Vector(x: lhs.x - rhs.x, y: lhs.y - rhs.y, z: lhs.z - rhs.z)
 }
 
-func +=(inout lhs: Vector, rhs: Vector) {
+func +=( lhs: inout Vector, rhs: Vector) {
     lhs = lhs + rhs
 }
 
@@ -138,19 +138,19 @@ let lightColor = Vector(x: 0, y: 0, z: 1)
 var v: [Vertex] = []
 var f: [(Int, Int, Int)] = []
 
-let model = String(contentsOfFile: "1.obj", encoding: NSUTF8StringEncoding, error: nil)!
-let lines = split(model) { $0 == "\n" }
-let numberFormatter = NSNumberFormatter()
+let model = try! String(contentsOfFile: "1.obj", encoding: .utf8)
+let lines = model.characters.split(separator: "\n")
+let numberFormatter = NumberFormatter()
 for line in lines {
-    let items = split(line) { $0 == " " }
+    let items = line.split(separator: " ").map(String.init)
     if items.count < 4 {
         continue
     }
     if items[0] == "v" {
-        let array = Array(items[1...3]).map { numberFormatter.numberFromString($0)!.floatValue }
+        let array = Array(items[1...3]).map { numberFormatter.number(from: $0)!.floatValue }
         v.append((Vector(x: array[0], y: array[1], z: array[2]), .zero))
     } else if items[0] == "f" {
-        let array = Array(items[1...3]).map { $0.toInt()! - 1 }
+        let array = Array(items[1...3]).map { Int($0)! - 1 }
         f.append(array[0], array[1], array[2])
         let v0 = v[array[0]].position
         let v1 = v[array[1]].position - v0
@@ -164,9 +164,9 @@ for line in lines {
 v = v.map { ($0.position, $0.normal.normalized) }
 let faces = f.map { Face(v0: v[$0.0].position, v1: v[$0.1].position, v2: v[$0.2].position, n0: v[$0.0].normal, n1: v[$0.1].normal, n2: v[$0.2].normal) }
 
-var image = [[Vector]](count: height, repeatedValue: [Vector](count: width, repeatedValue: .zero))
+var image = [[Vector]](repeating: [Vector](repeating: .zero, count: width), count: height)
 
-dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
+DispatchQueue.concurrentPerform(iterations: height) { i in
     let fi = i.f / height.f * 2 - 1
     for j in 0..<width {
         let fj = j.f / width.f * 2 - 1
@@ -174,10 +174,10 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
         var reflection: Float = 1
         var depth = 0
         var ray = Ray(origin: Vector(x: fj, y: 1, z: fi), direction: Vector(x: 0, y: -1, z: 0))
-        do {
+        repeat {
             var min: Float = .infinity, minFace: Face?
             for face in faces {
-                if let distance = face.intersect(ray) where distance < min {
+                if let distance = face.intersect(ray: ray), distance < min {
                     min = distance
                     minFace = face
                 }
@@ -189,12 +189,12 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
                 let toLight = Ray(origin: intersection, direction: direction)
                 var obstructed = false
                 for face in faces {
-                    if face.intersect(toLight) != nil {
+                    if face.intersect(ray: toLight) != nil {
                         obstructed = true
                         break
                     }
                 }
-                let n = face.normal(intersection).normalized
+                let n = face.normal(point: intersection).normalized
                 if !obstructed {
                     let l = direction.normalized
                     let e = -intersection.normalized
@@ -210,10 +210,11 @@ dispatch_apply(height, dispatch_get_global_queue(0, 0)) { i in
                 break
             }
             reflection *= 0.8
-            depth++
+            depth += 1
         } while reflection > 0.00001 && depth < 10
         image[height - i - 1][width - j - 1] = color
     }
+    print(i)
 }
 
 let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: NSCalibratedRGBColorSpace, bytesPerRow: 3 * width, bitsPerPixel: 24)!
@@ -223,7 +224,7 @@ for i in 0..<height {
         rep.setColor(NSColor(calibratedRed: CGFloat(color.x), green: CGFloat(color.y), blue: CGFloat(color.z), alpha: 1), atX: j, y: i)
     }
 }
-rep.representationUsingType(.NSPNGFileType, properties: [:])!.writeToFile("1.png", atomically: false)
+try! rep.representation(using: .PNG, properties: [:])!.write(to: URL(fileURLWithPath: "1.png"))
 
 //var output = "P3\n\(height) \(width) 255\n"
 //for i in 0..<height {
@@ -232,4 +233,4 @@ rep.representationUsingType(.NSPNGFileType, properties: [:])!.writeToFile("1.png
 //        output += "\(Int(color.x * 255)) \(Int(color.y * 255)) \(Int(color.z * 255))\n"
 //    }
 //}
-//output.writeToFile("1.pmm", atomically: false, encoding: NSUTF8StringEncoding, error: nil)
+//try! output.write(toFile: "1.pmm", atomically: false, encoding: .utf8)
